@@ -1,30 +1,32 @@
 import os
-import re
 import cmd
 import shlex
 import subprocess
-import getpass
+import json
 import ConfigParser
 
 import hgapi
 import requests
-from github import Github, UnknownObjectException
 
 # The repositories that need to be mirrored.
 # The format:
 #
 #  ('relative path of tryton repo', 'git_repo_name')
-REPOS = [
-    ('trytond', 'trytond'),
-    ('tryton', 'tryton'),
-    ('proteus', 'proteus'),
-    ('neso', 'neso'),
-    ('sao', 'sao'),
-    ('cookiecutter', 'cookiecutter-tryton'),
-]
+REPOS = []
+#REPOS = [
+#    ('trytond', 'trytond'),
+#    ('tryton', 'tryton'),
+#    ('proteus', 'proteus'),
+#    ('neso', 'neso'),
+#    ('sao', 'sao'),
+#    ('cookiecutter', 'cookiecutter-tryton'),
+#]
 
 # Canonical source base_url
-HG_BASE_URL = 'https://hg.tryton.org'
+# TODO: Read from environament varibles or config file
+GITLAB_HOST = '192.168.10.90'
+GITLAB_URL = 'http://%s/api/v3/' % GITLAB_HOST
+GITLAB_TOKEN = 'Mx9N9Fo-Jqq_UJ_xKL8v'
 
 # The directory where the mercurial repos should be cloned to
 HG_CACHE = 'hg'
@@ -53,8 +55,8 @@ class CommandHandler(cmd.Cmd):
         if not os.path.exists(GIT_CACHE):
             os.makedirs(GIT_CACHE)
 
-        for hg_module, git_name in REPOS:
-            git_repo_dir = os.path.join(GIT_CACHE, git_name)
+        for hg_module, _ in REPOS:
+            git_repo_dir = os.path.join(GIT_CACHE, hg_module)
             if not os.path.exists(git_repo_dir):
                 subprocess.check_call(
                     shlex.split('git init -q %s' % git_repo_dir))
@@ -63,11 +65,10 @@ class CommandHandler(cmd.Cmd):
         """
         Clone all hg repos
         """
-        for hg_module, git_name in REPOS:
+        for hg_module, repo_url in REPOS:
             if os.path.exists(os.path.join(HG_CACHE, hg_module)):
                 continue
 
-            repo_url = '/'.join([HG_BASE_URL, hg_module])
             cmd = 'hg clone -q %s %s/%s' % (
                 repo_url, HG_CACHE, hg_module,
             )
@@ -97,7 +98,7 @@ class CommandHandler(cmd.Cmd):
         """
         Pull all repos one by one
         """
-        for hg_module, git_name in REPOS:
+        for hg_module, repo_url in REPOS:
             subprocess.check_call(
                 shlex.split('hg --cwd %s pull -u -q' %
                     os.path.join(HG_CACHE, hg_module))
@@ -117,88 +118,95 @@ class CommandHandler(cmd.Cmd):
         """
         Move from hg to local git repo
         """
-        for hg_module, git_name in REPOS:
+        for hg_module, _ in REPOS:
             hg_repo = hgapi.Repo(os.path.join(HG_CACHE, hg_module))
             self._make_bookmarks(hg_repo)
             cmd = shlex.split('hg --cwd=%s push -q %s' % (
                     os.path.join(HG_CACHE, hg_module),
-                    os.path.abspath(os.path.join(GIT_CACHE, git_name))
-                    )) 
+                    os.path.abspath(os.path.join(GIT_CACHE, hg_module))
+                    ))
             retcode = subprocess.call(cmd)
             if retcode not in [0, 1]:
                 raise subprocess.CalledProcessError(retcode, cmd)
 
     def _get_default_remote(self, git_name):
-        return "git@github.com:tryton/%s.git" % git_name
+        return "git@%s:tryton/%s.git" % (GITLAB_HOST, git_name)
 
     def do_push_to_remotes(self, line=None):
         """
         Push the code to the remotes in a git repository
         """
-        for hg_module, git_name in REPOS:
-            remotes = [self._get_default_remote(git_name)]
+        for hg_module, _ in REPOS:
+            remotes = [self._get_default_remote(hg_module)]
             remotes.extend(ADDITIONAL_REMOTES.get('git_name', []))
             for remote in remotes:
                 subprocess.check_call(
                     shlex.split(
                         'git --git-dir=%s/%s/.git push -q --mirror %s' % (
-                            GIT_CACHE, git_name, remote)))
+                            GIT_CACHE, hg_module, remote)))
 
 
 class RepoHandler(object):
 
-    github_client = None
+    namespace_id = None
 
     @staticmethod
-    def get_tryton_module_names():
-        rv = requests.get('https://downloads.tryton.org/modules.txt')
-        return rv.text.splitlines()
-
-    def get_github_client(self):
-        """
-        Return an authenticated github client
-        """
-        if self.github_client:
-            return self.github_client
-
-        self.github_client = Github("tryton-mirror-keeper", getpass.getpass())
-        return self.github_client
-
-    def is_repo_on_github(self, repo_name):
-        github_client = self.get_github_client()
-        try:
-            github_client.get_repo('tryton/%s' % repo_name)
-        except UnknownObjectException:
-            return False
-        else:
-            return True
+    def get_bitbucket_owner_modules(owner):
+        base = ('https://api.bitbucket.org/2.0/repositories/%s/?pagelen=100' %
+            owner)
+        repos = []
+        size = None
+        processed = 0
+        page = 1
+        while size is None or processed < size:
+            rv = requests.get('%s&page=%d' % (base, page))
+            data = rv.json()
+            if size is None:
+                size = data['size']
+            for repo in data['values']:
+                processed += 1
+                name = repo['name']
+                # Skip not tryton modules
+                if name[:8] != 'trytond-' or repo['scm'] != 'hg':
+                    continue
+                url, = [r['href'] for r in repo['links']['clone']
+                    if r['name'] == 'https']
+                repos.append((repo['name'], url))
+            page += 1
+        return repos
 
     def create_repo(self, repo_name, homepage=None):
-        github_client = self.get_github_client()
-        tryton_org = github_client.get_organization('tryton')
-        return tryton_org.create_repo(repo_name, 'Mirror of %s' % repo_name,
-            homepage=homepage, has_wiki=False, has_issues=False)
+        if self.namespace_id is None:
+            rv = requests.get(
+                '%s/namespaces?search=tryton&private_token=%s' % (
+                    GITLAB_URL, GITLAB_TOKEN))
+            self.namespace_id = rv.json()[0]['id']
+        project_data = {
+            'name': repo_name,
+            'description': 'CI mirror of %s' % (repo_name),
+            'namespace_id': self.namespace_id,
+            'public': True,
+            'issues_enabled': False,
+            'merge_requests_enabled': False,
+            'wiki_enabled': False,
+            }
+        headers = {'Content-Type': 'application/json'}
+        url = '%s/projects?&private_token=%s' % (GITLAB_URL, GITLAB_TOKEN)
+        rv = requests.post(url, data=json.dumps(project_data), headers=headers)
 
     def create_missing_repos(self):
-        repos = [g for r, g in REPOS]
-        repos.extend(self.get_tryton_module_names())
-        git2hg = {git_name: hg_module for hg_module, git_name in REPOS}
+        repos = [x[0] for x in self.get_bitbucket_owner_modules('trytonspain')]
 
-        github_client = self.get_github_client()
-        tryton_org = github_client.get_organization('tryton')
-        org_repos = {r.name: r for r in tryton_org.get_repos()}
+        rv = requests.get('%s/projects?private_token=%s' % (
+                GITLAB_URL, GITLAB_TOKEN))
+        git_repos = [r['name'] for r in rv.json()]
         for repo_name in repos:
-            homepage = '/'.join([HG_BASE_URL, git2hg[repo_name]])
-            repo = org_repos.get(repo_name)
-            if not repo:
-                self.create_repo(repo_name, homepage)
-            elif repo.has_wiki or repo.has_issues or repo.homepage != homepage:
-                repo.edit(repo_name, homepage=homepage,
-                    has_wiki=False, has_issues=False)
+            if repo_name not in git_repos:
+                self.create_repo(repo_name)
 
-# Add the modules from tryton module list
-for module_name in RepoHandler.get_tryton_module_names():
-    REPOS.append(('modules/%s' % module_name, module_name))
+# Add the modules from tryonspain
+# TODO: Make trytonspain a command line argument
+REPOS += RepoHandler.get_bitbucket_owner_modules('trytonspain')
 
 
 if __name__ == '__main__':
