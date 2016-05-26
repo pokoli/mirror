@@ -13,32 +13,25 @@ import requests
 #
 #  ('relative path of tryton repo', 'git_repo_name')
 REPOS = []
-#REPOS = [
-#    ('trytond', 'trytond'),
-#    ('tryton', 'tryton'),
-#    ('proteus', 'proteus'),
-#    ('neso', 'neso'),
-#    ('sao', 'sao'),
-#    ('cookiecutter', 'cookiecutter-tryton'),
-#]
 
 # Canonical source base_url
-# TODO: Read from environament varibles or config file
-GITLAB_HOST = '192.168.10.90'
+GITLAB_HOST = os.environ.get('GITLAB_HOST', 'localhost')
 GITLAB_URL = 'http://%s/api/v3/' % GITLAB_HOST
-GITLAB_TOKEN = 'Mx9N9Fo-Jqq_UJ_xKL8v'
+GITLAB_TOKEN = os.environ.get('GITLAB_TOKEN', '')
 
 # The directory where the mercurial repos should be cloned to
-HG_CACHE = 'hg'
+HG_CACHE = os.environ.get('HG_CACHE', 'hg')
 
 # The directory where git repositories should be cached
-GIT_CACHE = 'git'
+GIT_CACHE = os.environ.get('GIT_CACHE', 'git')
 
 # additional git remotes. A provision to set the remotes other than the
 # default github remote
 ADDITIONAL_REMOTES = {
     # module: [list, of, remotes]
 }
+
+BB_OWNER = os.environ.get('BB_OWNER', 'trytonspain')
 
 
 class CommandHandler(cmd.Cmd):
@@ -151,9 +144,9 @@ class RepoHandler(object):
     namespace_id = None
 
     @staticmethod
-    def get_bitbucket_owner_modules(owner):
+    def get_bitbucket_owner_modules():
         base = ('https://api.bitbucket.org/2.0/repositories/%s/?pagelen=100' %
-            owner)
+            BB_OWNER)
         repos = []
         size = None
         processed = 0
@@ -195,7 +188,7 @@ class RepoHandler(object):
         rv = requests.post(url, data=json.dumps(project_data), headers=headers)
 
     def create_missing_repos(self):
-        repos = [x[0] for x in self.get_bitbucket_owner_modules('trytonspain')]
+        repos = [x[0] for x in self.get_bitbucket_owner_modules()]
 
         rv = requests.get('%s/projects?private_token=%s' % (
                 GITLAB_URL, GITLAB_TOKEN))
@@ -206,7 +199,7 @@ class RepoHandler(object):
 
 # Add the modules from tryonspain
 # TODO: Make trytonspain a command line argument
-REPOS += RepoHandler.get_bitbucket_owner_modules('trytonspain')
+REPOS += RepoHandler.get_bitbucket_owner_modules()
 
 
 if __name__ == '__main__':
