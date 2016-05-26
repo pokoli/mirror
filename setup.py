@@ -19,6 +19,7 @@ setuptools.setup(
         'scripts/tryton_mirror',
         'scripts/tryton_mirror_sync',
         'scripts/tryton_create_repos',
+        'scripts/tryton_downloader',
     ],
     license='BSD License',
     zip_safe=False,

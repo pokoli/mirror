@@ -1,0 +1,8 @@
+#!/usr/bin/env python
+from tryton_mirror import CommandHandler
+
+if __name__ == '__main__':
+    handler = CommandHandler()
+    handler.do_setup()
+    handler.do_clone_all()
+    handler.do_pull_all()
