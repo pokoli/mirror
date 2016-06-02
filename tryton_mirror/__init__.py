@@ -123,7 +123,7 @@ class CommandHandler(cmd.Cmd):
                 raise subprocess.CalledProcessError(retcode, cmd)
 
     def _get_default_remote(self, git_name):
-        return "git@%s:tryton/%s.git" % (GITLAB_HOST, git_name)
+        return "git@%s:%s/%s.git" % (GITLAB_HOST, BB_OWNER, git_name)
 
     def do_push_to_remotes(self, line=None):
         """
@@ -171,8 +171,8 @@ class RepoHandler(object):
     def create_repo(self, repo_name, homepage=None):
         if self.namespace_id is None:
             rv = requests.get(
-                '%s/namespaces?search=tryton&private_token=%s' % (
-                    GITLAB_URL, GITLAB_TOKEN))
+                '%s/namespaces?search=%s&private_token=%s' % (
+                    GITLAB_URL, BB_OWNER, GITLAB_TOKEN))
             self.namespace_id = rv.json()[0]['id']
         project_data = {
             'name': repo_name,
@@ -198,7 +198,6 @@ class RepoHandler(object):
                 self.create_repo(repo_name)
 
 # Add the modules from tryonspain
-# TODO: Make trytonspain a command line argument
 REPOS += RepoHandler.get_bitbucket_owner_modules()
 
 
