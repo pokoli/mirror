@@ -159,6 +159,10 @@ class RepoHandler(object):
             for repo in data['values']:
                 processed += 1
                 name = repo['name']
+                # Skip deprecated modules
+                project_key = repo.get('project', {}).get('key', '')
+                if project_key == 'DEP':
+                    continue
                 # Skip not tryton modules
                 if name[:8] != 'trytond-' or repo['scm'] != 'hg':
                     continue
