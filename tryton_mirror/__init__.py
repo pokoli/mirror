@@ -65,7 +65,9 @@ class CommandHandler(cmd.Cmd):
             cmd = 'hg clone -q %s %s/%s' % (
                 repo_url, HG_CACHE, hg_module,
             )
-            subprocess.check_call(shlex.split(cmd))
+            ret = subprocess.call(shlex.split(cmd))
+            if ret != 0:
+                continue
 
             hgrc = os.path.join('.', HG_CACHE, hg_module, '.hg/hgrc')
 
@@ -92,7 +94,7 @@ class CommandHandler(cmd.Cmd):
         Pull all repos one by one
         """
         for hg_module, repo_url in REPOS:
-            subprocess.check_call(
+            subprocess.call(
                 shlex.split('hg --cwd %s pull -u -q' %
                     os.path.join(HG_CACHE, hg_module))
                 )
