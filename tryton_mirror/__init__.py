@@ -112,7 +112,7 @@ class CommandHandler(cmd.Cmd):
         Move from hg to local git repo
         """
         for hg_module, _ in REPOS:
-            if os.path.exists(os.path.join(HG_CACHE, hg_module)):
+            if not os.path.exists(os.path.join(HG_CACHE, hg_module)):
                 continue
             hg_repo = hgapi.Repo(os.path.join(HG_CACHE, hg_module))
             self._make_bookmarks(hg_repo)
