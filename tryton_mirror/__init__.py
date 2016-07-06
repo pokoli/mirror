@@ -2,22 +2,17 @@ import os
 import cmd
 import shlex
 import subprocess
-import json
 import ConfigParser
 
 import hgapi
 import requests
+from github import Github
 
 # The repositories that need to be mirrored.
 # The format:
 #
 #  ('relative path of tryton repo', 'git_repo_name')
 REPOS = []
-
-# Canonical source base_url
-GITLAB_HOST = os.environ.get('GITLAB_HOST', 'localhost')
-GITLAB_URL = 'http://%s/api/v3/' % GITLAB_HOST
-GITLAB_TOKEN = os.environ.get('GITLAB_TOKEN', '')
 
 # The directory where the mercurial repos should be cloned to
 HG_CACHE = os.environ.get('HG_CACHE', 'hg')
@@ -32,6 +27,9 @@ ADDITIONAL_REMOTES = {
 }
 
 BB_OWNER = os.environ.get('BB_OWNER', 'trytonspain')
+GITHUB_ORG = os.environ.get('GITHUB_ORG', BB_OWNER)
+GITHUB_USER = os.environ.get('GITHUB_USER', '')
+GITHUB_PASSWD = os.environ.get('GITHUB_PASSWORD', '')
 
 
 class CommandHandler(cmd.Cmd):
@@ -125,7 +123,7 @@ class CommandHandler(cmd.Cmd):
                 raise subprocess.CalledProcessError(retcode, cmd)
 
     def _get_default_remote(self, git_name):
-        return "git@%s:%s/%s.git" % (GITLAB_HOST, BB_OWNER, git_name)
+        return "git@github.com:%s/%s.git" % (GITHUB_ORG, git_name)
 
     def do_push_to_remotes(self, line=None):
         """
@@ -142,8 +140,8 @@ class CommandHandler(cmd.Cmd):
 
 
 class RepoHandler(object):
-
     namespace_id = None
+    github_client = None
 
     @staticmethod
     def get_bitbucket_owner_modules():
@@ -174,34 +172,38 @@ class RepoHandler(object):
             page += 1
         return repos
 
+    def get_github_client(self):
+        """
+        Return an authenticated github client
+        """
+        if self.github_client:
+            return self.github_client
+
+        self.github_client = Github(GITHUB_USER, GITHUB_PASSWD)
+        return self.github_client
+
     def create_repo(self, repo_name, homepage=None):
-        if self.namespace_id is None:
-            rv = requests.get(
-                '%s/namespaces?search=%s&private_token=%s' % (
-                    GITLAB_URL, BB_OWNER, GITLAB_TOKEN))
-            self.namespace_id = rv.json()[0]['id']
-        project_data = {
-            'name': repo_name,
-            'description': 'CI mirror of %s' % (repo_name),
-            'namespace_id': self.namespace_id,
-            'public': True,
-            'issues_enabled': False,
-            'merge_requests_enabled': False,
-            'wiki_enabled': False,
-            }
-        headers = {'Content-Type': 'application/json'}
-        url = '%s/projects?&private_token=%s' % (GITLAB_URL, GITLAB_TOKEN)
-        rv = requests.post(url, data=json.dumps(project_data), headers=headers)
+        github_client = self.get_github_client()
+        org = github_client.get_organization(GITHUB_ORG)
+        return org.create_repo(repo_name, 'Mirror of %s' % repo_name,
+                    homepage=homepage, has_wiki=False, has_issues=False)
 
     def create_missing_repos(self):
         repos = [x[0] for x in self.get_bitbucket_owner_modules()]
 
-        rv = requests.get('%s/projects?private_token=%s' % (
-                GITLAB_URL, GITLAB_TOKEN))
-        git_repos = [r['name'] for r in rv.json()]
+        github_client = self.get_github_client()
+        tryton_org = github_client.get_organization(GITHUB_ORG)
+        org_repos = {r.name: r for r in tryton_org.get_repos()}
         for repo_name in repos:
-            if repo_name not in git_repos:
-                self.create_repo(repo_name)
+            homepage = 'https://bitbucket.org/%s/%s' % (BB_OWNER,
+                repo_name)
+            repo = org_repos.get(repo_name)
+            if not repo:
+                self.create_repo(repo_name, homepage)
+            elif repo.has_wiki or repo.has_issues or repo.homepage != homepage:
+                repo.edit(repo_name, homepage=homepage,
+                    has_wiki=False, has_issues=False)
+
 
 # Add the modules from tryonspain
 REPOS += RepoHandler.get_bitbucket_owner_modules()
