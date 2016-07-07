@@ -49,7 +49,7 @@ class CommandHandler(cmd.Cmd):
         for hg_module, _ in REPOS:
             git_repo_dir = os.path.join(GIT_CACHE, hg_module)
             if not os.path.exists(git_repo_dir):
-                subprocess.check_call(
+                subprocess.call(
                     shlex.split('git init -q %s' % git_repo_dir))
 
     def do_clone_all(self, line=None):
@@ -135,7 +135,7 @@ class CommandHandler(cmd.Cmd):
             remotes = [self._get_default_remote(hg_module)]
             remotes.extend(ADDITIONAL_REMOTES.get('git_name', []))
             for remote in remotes:
-                subprocess.check_call(
+                subprocess.call(
                     shlex.split(
                         'git --git-dir=%s/%s/.git push -q --mirror %s' % (
                             GIT_CACHE, hg_module, remote)))
