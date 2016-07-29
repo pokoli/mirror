@@ -165,8 +165,10 @@ class RepoHandler(object):
                 project_key = repo.get('project', {}).get('key', '')
                 if project_key == 'DEP':
                     continue
-                # Skip not tryton modules
-                if name[:8] != 'trytond-' or repo['scm'] != 'hg':
+                if repo['scm'] != 'hg':
+                    continue
+                # Skip not tryton nor python modules
+                if name[:8] != 'trytond-' and name[:7] != 'python-':
                     continue
                 url, = [r['href'] for r in repo['links']['clone']
                     if r['name'] == 'https']
